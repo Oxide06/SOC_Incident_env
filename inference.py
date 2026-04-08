@@ -1,33 +1,45 @@
-import os, json, requests
+import os, json
 from typing import List, Optional
+from dotenv import load_dotenv
 from openai import OpenAI
 
-from dotenv import load_dotenv
 load_dotenv(override=True)
 
+API_KEY      = os.getenv("HF_TOKEN") or os.getenv("OPENAI_API_KEY") or os.getenv("API_KEY")
 API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-MODEL_NAME   = os.getenv("MODEL_NAME",   "Qwen/Qwen2.5-72B-Instruct")
-API_KEY      = os.environ.get("API_KEY") or os.environ.get("HF_TOKEN") or os.environ.get("OPENAI_API_KEY", "")
-ENV_BASE_URL = os.getenv("ENV_BASE_URL", "http://localhost:8000")
+MODEL_NAME   = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
+
+try:
+    from server.SOC_env_environment import SOCEnvironment
+    from models import SOCAction
+except ImportError:
+    from SOC_env.server.SOC_env_environment import SOCEnvironment
+    from SOC_env.models import SOCAction
 
 BENCHMARK = "SOC_env"
 MAX_STEPS = 12
 TASKS = ["task_easy", "task_medium", "task_hard"]
+SUCCESS_SCORE_THRESHOLD = 0.60
 
 client = None
 
-def env_reset(task_name):
-    resp = requests.post(f"{ENV_BASE_URL}/reset", json={"task": task_name}, timeout=30)
-    resp.raise_for_status()
-    return resp.json().get("observation", resp.json())
+TASK_SCENARIOS = {
+    "task_easy":   "easy_false_positive_vpn",
+    "task_medium": "medium_insider_threat",
+    "task_hard":   "hard_apt_lateral_movement",
+}
 
-def env_step(decision, reasoning=None):
-    payload = {"decision": decision}
-    if reasoning:
-        payload["reasoning"] = reasoning
-    resp = requests.post(f"{ENV_BASE_URL}/step", json=payload, timeout=30)
-    resp.raise_for_status()
-    return resp.json()
+TASK_DIFFICULTY = {
+    "task_easy":   "easy",
+    "task_medium": "medium",
+    "task_hard":   "hard",
+}
+
+BASELINE = {
+    "task_easy":   ["investigate", "ignore"],
+    "task_medium": ["investigate", "block_account", "collect_forensics", "escalate"],
+    "task_hard":   ["investigate", "isolate_device", "block_ip", "collect_forensics", "escalate"],
+}
 
 SYSTEM_PROMPT = '''You are an expert SOC Tier-1 analyst. Respond ONLY with JSON:
 {"decision": "<action>", "reasoning": "<one sentence>"}
@@ -40,12 +52,6 @@ Rules:
 6. Beyond Tier-1 -> escalate
 7. Never repeat an action already taken'''
 
-BASELINE = {
-    "task_easy":   ["investigate", "ignore"],
-    "task_medium": ["investigate", "block_account", "collect_forensics", "escalate"],
-    "task_hard":   ["investigate", "isolate_device", "block_ip", "collect_forensics", "escalate"],
-}
-
 def choose_action_baseline(task_name, step, history):
     seq = BASELINE.get(task_name, ["investigate", "escalate"])
     idx = step - 1
@@ -56,17 +62,17 @@ def choose_action_baseline(task_name, step, history):
             return a, "baseline fallback"
     return "escalate", "baseline exhausted"
 
-def llm_decide(obs, history, task_name, step):
-    available = obs.get("available_actions", [
+def llm_decide(obs_dict, history, task_name, step):
+    available = obs_dict.get("available_actions", [
         "ignore","monitor","investigate","block_ip","block_account",
         "isolate_device","escalate","request_mfa","patch_system","collect_forensics"
     ])
     user_msg = (
-        f"Alert: {obs.get('alert_type','')}\nSeverity: {obs.get('severity','')}\n"
-        f"Step: {obs.get('step',0)}/{obs.get('max_steps',8)}\n\nSignals:\n" +
-        "\n".join(f"  - {s}" for s in obs.get("signals",[])) +
-        f"\n\nContext:\n{json.dumps(obs.get('context',{}),indent=2) if obs.get('context') else '(empty - use investigate)'}\n\n"
-        f"Last feedback: {obs.get('feedback','')}\nAvailable: {', '.join(available)}\n"
+        f"Alert: {obs_dict.get('alert_type','')}\nSeverity: {obs_dict.get('severity','')}\n"
+        f"Step: {obs_dict.get('step',0)}/{obs_dict.get('max_steps',8)}\n\nSignals:\n" +
+        "\n".join(f"  - {s}" for s in obs_dict.get("signals",[])) +
+        f"\n\nContext:\n{json.dumps(obs_dict.get('context',{}),indent=2) if obs_dict.get('context') else '(empty - use investigate)'}\n\n"
+        f"Last feedback: {obs_dict.get('feedback','')}\nAvailable: {', '.join(available)}\n"
         f"Already taken: {', '.join(history) if history else 'none'}\nRespond ONLY with JSON."
     )
     try:
@@ -79,10 +85,10 @@ def llm_decide(obs, history, task_name, step):
             text = text.split("```")[1]
             if text.startswith("json"): text = text[4:]
         parsed = json.loads(text.strip())
-        decision = parsed.get("decision","investigate")
+        decision = parsed.get("decision", "investigate")
         if decision not in available:
             decision = "investigate"
-        return decision, parsed.get("reasoning",""), None
+        return decision, parsed.get("reasoning", ""), None
     except Exception as exc:
         d, r = choose_action_baseline(task_name, step, history)
         return d, r, str(exc)
@@ -113,32 +119,44 @@ def compute_score(task_name, actions):
 def run_episode(task_name):
     print(f"[START] task={task_name} env={BENCHMARK} model={MODEL_NAME}", flush=True)
     rewards, actions, step = [], [], 0
+
     try:
-        obs = env_reset(task_name)
+        env = SOCEnvironment(
+            difficulty=TASK_DIFFICULTY[task_name],
+            pinned_scenario_id=TASK_SCENARIOS[task_name]
+        )
+        obs = env.reset()
     except Exception as exc:
         print(f"[END] success=false steps=0 score=0.01 rewards=", flush=True)
         return False, 0, [], 0.01
-    done = obs.get("done", False)
+
+    done = obs.done
+
     while not done and step < MAX_STEPS:
         step += 1
+        obs_dict = obs.model_dump()
+
         if client is not None:
-            decision, reasoning, llm_error = llm_decide(obs, actions, task_name, step)
+            decision, reasoning, llm_error = llm_decide(obs_dict, actions, task_name, step)
         else:
             decision, reasoning = choose_action_baseline(task_name, step, actions)
             llm_error = "no client"
+
         try:
-            result = env_step(decision, reasoning)
-            reward = float(result.get("reward", 0.0))
-            done   = result.get("done", False)
-            obs    = result.get("observation", result)
+            action = SOCAction(decision=decision, reasoning=reasoning)
+            obs = env.step(action)
+            reward = float(obs.reward)
+            done = obs.done
         except Exception as exc:
             reward, done, llm_error = 0.0, True, str(exc)
+
         rewards.append(reward)
         actions.append(decision)
         error_str = llm_error if llm_error else "null"
         print(f"[STEP] step={step} action={decision} reward={reward:.2f} done={'true' if done else 'false'} error={error_str}", flush=True)
+
     score = compute_score(task_name, actions)
-    success = score >= 0.60
+    success = score >= SUCCESS_SCORE_THRESHOLD
     print(f"[END] success={'true' if success else 'false'} steps={step} score={score:.2f} rewards={','.join(f'{r:.2f}' for r in rewards)}", flush=True)
     return success, step, rewards, score
 

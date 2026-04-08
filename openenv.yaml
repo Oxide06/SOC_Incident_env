@@ -1,7 +1,6 @@
-spec_version: 1
+﻿spec_version: 1
 name: SOC_env
 type: space
 runtime: fastapi
-app: server.app:app
+app: server.app:main
 port: 8000
-

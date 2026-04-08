@@ -1,14 +1,14 @@
-﻿import os, sys, json, requests
+import os, json, requests
 from typing import List, Optional
 from openai import OpenAI
 
-API_BASE_URL  = os.getenv("API_BASE_URL",  "https://router.huggingface.co/v1")
-MODEL_NAME    = os.getenv("MODEL_NAME",    "Qwen/Qwen2.5-72B-Instruct")
-API_KEY       = os.getenv("OPENAI_API_KEY") or os.getenv("HF_TOKEN") or os.getenv("API_KEY", "")
-ENV_BASE_URL  = os.getenv("ENV_BASE_URL",  "http://localhost:8000")
+API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
+MODEL_NAME   = os.getenv("MODEL_NAME",   "llama-3.3-70b-versatile")
+API_KEY      = os.getenv("OPENAI_API_KEY") or os.getenv("HF_TOKEN") or os.getenv("API_KEY", "")
+ENV_BASE_URL = os.getenv("ENV_BASE_URL", "http://localhost:8000")
 
-BENCHMARK  = "SOC_env"
-MAX_STEPS  = 12
+BENCHMARK = "SOC_env"
+MAX_STEPS = 12
 TASKS = ["task_easy", "task_medium", "task_hard"]
 
 client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
@@ -16,8 +16,7 @@ client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
 def env_reset(task_name):
     resp = requests.post(f"{ENV_BASE_URL}/reset", json={"task": task_name}, timeout=30)
     resp.raise_for_status()
-    data = resp.json()
-    return data.get("observation", data)
+    return resp.json().get("observation", resp.json())
 
 def env_step(decision, reasoning=None):
     payload = {"decision": decision}
@@ -29,9 +28,8 @@ def env_step(decision, reasoning=None):
 
 SYSTEM_PROMPT = '''You are an expert SOC Tier-1 analyst. Respond ONLY with JSON:
 {"decision": "<action>", "reasoning": "<one sentence>"}
-
 Rules:
-1. Investigate first when context is empty
+1. Always investigate first when context is empty
 2. Authorized/normal activity -> ignore
 3. Account compromise -> block_account or request_mfa
 4. Active malware/C2 -> isolate_device
@@ -45,38 +43,29 @@ def llm_decide(obs, history):
         "isolate_device","escalate","request_mfa","patch_system","collect_forensics"
     ])
     user_msg = (
-        f"Alert: {obs.get('alert_type','')}\n"
-        f"Severity: {obs.get('severity','')}\n"
-        f"Step: {obs.get('step',0)}/{obs.get('max_steps',8)}\n\n"
-        "Signals:\n" + "\n".join(f"  - {s}" for s in obs.get("signals",[])) +
+        f"Alert: {obs.get('alert_type','')}\nSeverity: {obs.get('severity','')}\n"
+        f"Step: {obs.get('step',0)}/{obs.get('max_steps',8)}\n\nSignals:\n" +
+        "\n".join(f"  - {s}" for s in obs.get("signals",[])) +
         f"\n\nContext:\n{json.dumps(obs.get('context',{}),indent=2) if obs.get('context') else '(empty - use investigate)'}\n\n"
-        f"Last feedback: {obs.get('feedback','')}\n\n"
-        f"Available: {', '.join(available)}\n"
-        f"Already taken: {', '.join(history) if history else 'none'}\n"
-        "Respond ONLY with JSON."
+        f"Last feedback: {obs.get('feedback','')}\nAvailable: {', '.join(available)}\n"
+        f"Already taken: {', '.join(history) if history else 'none'}\nRespond ONLY with JSON."
     )
     try:
         response = client.chat.completions.create(
             model=MODEL_NAME, max_tokens=300, temperature=0.2,
-            messages=[
-                {"role":"system","content":SYSTEM_PROMPT},
-                {"role":"user","content":user_msg}
-            ],
+            messages=[{"role":"system","content":SYSTEM_PROMPT},{"role":"user","content":user_msg}],
         )
         text = response.choices[0].message.content.strip()
-        if "`" in text:
-            text = text.split("`")[1]
+        if "```" in text:
+            text = text.split("```")[1]
             if text.startswith("json"): text = text[4:]
         parsed = json.loads(text.strip())
         decision = parsed.get("decision","investigate")
-        reasoning = parsed.get("reasoning","")
         if decision not in available:
             decision = "investigate"
-            reasoning = "Invalid LLM decision - defaulting"
-        return decision, reasoning, None
+        return decision, parsed.get("reasoning",""), None
     except Exception as exc:
-        fallback = "investigate" if not obs.get("context") else "escalate"
-        return fallback, "LLM error - fallback", str(exc)
+        return ("investigate" if not obs.get("context") else "escalate"), "fallback", str(exc)
 
 def compute_success(task_name, actions):
     if task_name == "task_easy":
@@ -92,7 +81,7 @@ def run_episode(task_name):
     rewards, actions, step = [], [], 0
     try:
         obs = env_reset(task_name)
-    except Exception as exc:
+    except Exception:
         print(f"[END] success=false steps=0 rewards=", flush=True)
         return False, 0, []
     done = obs.get("done", False)
@@ -101,7 +90,7 @@ def run_episode(task_name):
         decision, reasoning, llm_error = llm_decide(obs, actions)
         try:
             result = env_step(decision, reasoning)
-            reward = float(result.get("reward", 0.0))
+            reward = float(result.get("reward",0.0))
             done   = result.get("done", False)
             obs    = result.get("observation", result)
         except Exception as exc:

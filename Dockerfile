@@ -2,8 +2,10 @@
 
 WORKDIR /app
 
+# Install uv
 RUN pip install uv --quiet
 
+# Copy all necessary files
 COPY pyproject.toml .
 COPY __init__.py .
 COPY models.py .
@@ -12,11 +14,11 @@ COPY tasks.py .
 COPY client.py .
 COPY server/ ./server/
 
-RUN uv pip install --system \
-    "openenv-core[core]>=0.2.2" \
-    "uvicorn>=0.24.0" \
-    "fastapi>=0.104.0"
+# Install dependencies + install your own package in editable mode
+RUN uv pip install --system "openenv-core[core]>=0.2.2" uvicorn fastapi
+RUN uv pip install --system -e .
 
 EXPOSE 8000
 
+# This is the most reliable way for Docker
 CMD ["python", "-m", "uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "8000"]

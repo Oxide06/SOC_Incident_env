@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+run.ps1
+.git/
+.gitignore
+trajectories/
+*.log
+.agents/
+.codex/
+openenv_SOC_env.egg-info/

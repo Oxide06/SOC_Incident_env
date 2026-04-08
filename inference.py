@@ -3,8 +3,8 @@ from typing import List, Optional
 from openai import OpenAI
 
 API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-MODEL_NAME   = os.getenv("MODEL_NAME",   "llama-3.3-70b-versatile")
-API_KEY      = os.getenv("OPENAI_API_KEY") or os.getenv("HF_TOKEN") or os.getenv("API_KEY", "")
+MODEL_NAME = os.getenv("MODEL_NAME",   "llama-3.3-70b-versatile")
+API_KEY = os.getenv("API_KEY") or os.getenv("HF_TOKEN") or os.getenv("OPENAI_API_KEY", "")
 ENV_BASE_URL = os.getenv("ENV_BASE_URL", "http://localhost:8000")
 
 BENCHMARK = "SOC_env"

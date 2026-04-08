@@ -1,4 +1,4 @@
-﻿from typing import Optional
+from typing import Optional
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse, HTMLResponse
 from pydantic import BaseModel
@@ -12,7 +12,7 @@ except ModuleNotFoundError:
     from models import SOCAction, SOCObservation
     from tasks import TASKS as TASK_REGISTRY
 
-app = FastAPI(title="SOC Incident Response Environment")
+app = FastAPI(title="SOC Incident Response Environment", version="0.1.0")
 _env = SOCEnvironment()
 
 class ResetRequest(BaseModel):
@@ -25,7 +25,16 @@ class StepRequest(BaseModel):
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    return {"status": "healthy"}
+
+@app.get("/metadata")
+async def metadata():
+    return {
+        "name": "SOC_env",
+        "description": "SOC Incident Response Environment — AI agent acts as a Tier-1 SOC analyst triaging security alerts across easy, medium, and hard scenarios.",
+        "version": "0.1.0",
+        "author": "ApoorvaBadoni",
+    }
 
 @app.post("/reset")
 async def reset(req: ResetRequest = ResetRequest()):
@@ -62,8 +71,24 @@ async def list_tasks():
 
 @app.get("/schema")
 async def schema():
-    return JSONResponse({"action": SOCAction.model_json_schema(),
-                         "observation": SOCObservation.model_json_schema()})
+    from openenv.core.env_server.types import State
+    return JSONResponse({
+        "action": SOCAction.model_json_schema(),
+        "observation": SOCObservation.model_json_schema(),
+        "state": State.model_json_schema(),
+    })
+
+@app.post("/mcp")
+async def mcp():
+    return JSONResponse({
+        "jsonrpc": "2.0",
+        "id": None,
+        "result": {
+            "name": "SOC_env",
+            "description": "SOC Incident Response Environment",
+            "tools": []
+        }
+    })
 
 @app.get("/web", response_class=HTMLResponse)
 @app.get("/", response_class=HTMLResponse)
@@ -294,23 +319,19 @@ async function takeAction(decision) {
   const obs = data.observation;
   const reward = data.reward;
 
-  // Update stats
   document.getElementById('stat-step').textContent = obs.step;
   document.getElementById('stat-score').textContent = obs.score.toFixed(2);
   const pct = Math.min(100, Math.max(0, (obs.score / obs.max_steps) * 100));
   document.getElementById('score-fill').style.width = pct + '%';
   document.getElementById('stat-max').textContent = obs.max_steps;
 
-  // Feedback
   document.getElementById('feedback-box').textContent = obs.feedback;
   document.getElementById('phase-pill').textContent = obs.phase;
 
-  // Context
   if (obs.context && Object.keys(obs.context).length > 0) {
     document.getElementById('context-box').innerHTML = '<pre>' + JSON.stringify(obs.context, null, 2) + '</pre>';
   }
 
-  // Log
   const rewardClass = reward >= 0 ? 'log-reward-pos' : 'log-reward-neg';
   const rewardSign = reward >= 0 ? '+' : '';
   addLog(`Step ${obs.step}: ${decision} → reward <span class="${rewardClass}">${rewardSign}${reward.toFixed(2)}</span> | score: ${obs.score.toFixed(2)}`, 'log-step');

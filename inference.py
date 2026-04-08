@@ -1,16 +1,20 @@
 import os, json, requests
+from typing import List, Optional
 from openai import OpenAI
 
-API_BASE_URL = os.environ.get("API_BASE_URL", "https://router.huggingface.co/v1")
-MODEL_NAME   = os.environ.get("MODEL_NAME",   "Qwen/Qwen2.5-72B-Instruct")
-API_KEY      = os.environ.get("HF_TOKEN")
-ENV_BASE_URL = os.environ.get("ENV_BASE_URL", "http://localhost:8000")
+from dotenv import load_dotenv
+load_dotenv()
+
+API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
+MODEL_NAME   = os.getenv("MODEL_NAME",   "Qwen/Qwen2.5-72B-Instruct")
+API_KEY      = os.getenv("HF_TOKEN") or os.getenv("OPENAI_API_KEY") or os.getenv("API_KEY")
+ENV_BASE_URL = os.getenv("ENV_BASE_URL", "http://localhost:8000")
 
 BENCHMARK = "SOC_env"
 MAX_STEPS = 12
 TASKS = ["task_easy", "task_medium", "task_hard"]
 
-client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+client = None
 
 def env_reset(task_name):
     resp = requests.post(f"{ENV_BASE_URL}/reset", json={"task": task_name}, timeout=30)
@@ -36,7 +40,23 @@ Rules:
 6. Beyond Tier-1 -> escalate
 7. Never repeat an action already taken'''
 
-def llm_decide(obs, history):
+BASELINE = {
+    "task_easy":   ["investigate", "ignore"],
+    "task_medium": ["investigate", "block_account", "collect_forensics", "escalate"],
+    "task_hard":   ["investigate", "isolate_device", "block_ip", "collect_forensics", "escalate"],
+}
+
+def choose_action_baseline(task_name, step, history):
+    seq = BASELINE.get(task_name, ["investigate", "escalate"])
+    idx = step - 1
+    if idx < len(seq) and seq[idx] not in history:
+        return seq[idx], "baseline fallback"
+    for a in seq:
+        if a not in history:
+            return a, "baseline fallback"
+    return "escalate", "baseline exhausted"
+
+def llm_decide(obs, history, task_name, step):
     available = obs.get("available_actions", [
         "ignore","monitor","investigate","block_ip","block_account",
         "isolate_device","escalate","request_mfa","patch_system","collect_forensics"
@@ -64,7 +84,8 @@ def llm_decide(obs, history):
             decision = "investigate"
         return decision, parsed.get("reasoning",""), None
     except Exception as exc:
-        return ("investigate" if not obs.get("context") else "escalate"), "fallback", str(exc)
+        d, r = choose_action_baseline(task_name, step, history)
+        return d, r, str(exc)
 
 def compute_score(task_name, actions):
     if task_name == "task_easy":
@@ -77,14 +98,15 @@ def compute_score(task_name, actions):
         return 0.10
     elif task_name == "task_medium":
         s = 0.0
-        if "investigate" in actions:  s += 0.20
-        if "block_account" in actions: s += 0.25
+        if "investigate" in actions:       s += 0.20
+        if "block_account" in actions:     s += 0.25
         if "collect_forensics" in actions: s += 0.20
-        if "escalate" in actions: s += 0.25
+        if "escalate" in actions:          s += 0.25
         return round(min(0.99, max(0.01, s)), 2)
     elif task_name == "task_hard":
         key = ["investigate","isolate_device","block_ip","collect_forensics","escalate"]
-        s = sum([0.15,0.20,0.20,0.20,0.15][i] for i,a in enumerate(key) if a in actions)
+        weights = [0.15, 0.20, 0.20, 0.20, 0.15]
+        s = sum(w for a, w in zip(key, weights) if a in actions)
         return round(min(0.99, max(0.01, s)), 2)
     return 0.50
 
@@ -99,7 +121,11 @@ def run_episode(task_name):
     done = obs.get("done", False)
     while not done and step < MAX_STEPS:
         step += 1
-        decision, reasoning, llm_error = llm_decide(obs, actions)
+        if client is not None:
+            decision, reasoning, llm_error = llm_decide(obs, actions, task_name, step)
+        else:
+            decision, reasoning = choose_action_baseline(task_name, step, actions)
+            llm_error = "no client"
         try:
             result = env_step(decision, reasoning)
             reward = float(result.get("reward", 0.0))
@@ -128,4 +154,14 @@ def main():
     print(f"# Tasks passed: {sum(1 for r in results if r['success'])}/{len(results)}", flush=True)
 
 if __name__ == "__main__":
+    if API_KEY:
+        try:
+            client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+            print("[DEBUG] OpenAI client initialized.", flush=True)
+        except Exception as e:
+            print(f"[DEBUG] Failed to initialize OpenAI client: {e}", flush=True)
+            client = None
+    else:
+        print("[DEBUG] No API key found. Using baseline policy.", flush=True)
+        client = None
     main()

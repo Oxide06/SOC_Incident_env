@@ -143,7 +143,7 @@ class SOCEnvironment(Environment):
 
         if is_fp:
             if decision == "ignore":
-                return 0.8, "Correct! This was a false positive.", "closed"
+                return 0.79, "Correct! This was a false positive.", "closed"
             elif decision == "investigate":
                 return 0.1, "Good - investigate before acting.", "investigation"
             elif decision in TERMINAL_ACTIONS:
@@ -152,12 +152,12 @@ class SOCEnvironment(Environment):
                 return 0.0, f"'{decision}' noted.", "monitoring"
 
         if decision == "ignore":
-            return -0.5, "Dangerous! This is a real threat.", "detection"
+            return -0.49, "Dangerous! This is a real threat.", "detection"
         if decision == "investigate":
             r = 0.1 if self._investigation_done else 0.15
             return r, "Investigation initiated. Context now available.", "investigation"
         if decision == optimal and decision in TERMINAL_ACTIONS:
-            return 1.0, f"Perfect! '{decision}' is exactly right. Incident contained.", "resolved"
+            return 0.99, f"Perfect! '{decision}' is exactly right. Incident contained.", "resolved"
         if decision in correct_seq:
             idx = correct_seq.index(decision)
             return 0.3, f"Good step! Part of correct sequence ({idx+1}/{len(correct_seq)}).", "containment"

@@ -19,12 +19,12 @@ TASKS = {
         "difficulty": "easy",
         "scenario_id": "easy_false_positive_vpn",
         "description": (
-            "A low-severity login alert fired for an employee logging in from an "
-            "unusual location. Correctly identify this as a false positive (approved "
-            "VPN travel) without over-reacting and disrupting a legitimate user."
+            "A low-severity login alert has fired for an employee logging in "
+            "from an unusual location. The agent must correctly identify this "
+            "as a false positive (VPN usage) and choose to ignore it."
         ),
         "max_steps": 5,
-        "success_criteria": "Agent correctly ignores the false-positive alert after investigation.",
+        "success_criteria": "Agent correctly ignores the false-positive alert.",
     },
     "task_medium": {
         "name": "task_medium",
@@ -32,12 +32,12 @@ TASKS = {
         "difficulty": "medium",
         "scenario_id": "medium_insider_threat",
         "description": (
-            "A departing employee is exfiltrating 6.8 GB of sensitive IP including "
-            "source code and client data to a competitor. Investigate, contain the "
-            "account, preserve forensic evidence, and escalate to legal/IR team."
+            "A departing employee is actively exfiltrating confidential files "
+            "on their final working days. The agent must investigate, contain "
+            "the account, preserve evidence, and escalate."
         ),
         "max_steps": 8,
-        "success_criteria": "Agent investigates, blocks account, collects forensics, and escalates.",
+        "success_criteria": "Agent escalates after investigating and blocking the account.",
     },
     "task_hard": {
         "name": "task_hard",
@@ -45,12 +45,12 @@ TASKS = {
         "difficulty": "hard",
         "scenario_id": "hard_apt_lateral_movement",
         "description": (
-            "APT29-attributed active intrusion with Cobalt Strike C2. Pass-the-Hash "
-            "lateral movement detected across 3 workstations toward Domain Controller. "
-            "Domain Admin hash captured. Isolate, block C2, collect forensics, escalate."
+            "An APT is actively moving laterally through the network using "
+            "Cobalt Strike. Isolate compromised hosts, block C2, collect "
+            "forensic evidence, and escalate to Tier-2."
         ),
         "max_steps": 12,
-        "success_criteria": "Isolate device, block C2 IP, collect forensics, escalate to IR team.",
+        "success_criteria": "Agent isolates device, blocks IP, collects forensics, and escalates.",
     },
 }
 
@@ -61,22 +61,22 @@ def _clamp(score: float) -> float:
 
 def grade_task_easy(actions: List[str], final_score: float, done: bool) -> TaskResult:
     investigated = "investigate" in actions
-    ignored      = "ignore" in actions
-    overreacted  = any(a in actions for a in ["block_account", "isolate_device", "block_ip"])
+    ignored = "ignore" in actions
+    overreacted = any(a in actions for a in ["block_account", "isolate_device", "escalate", "block_ip"])
 
     if overreacted:
-        score, success, reason = 0.02, False, "Over-reacted to false positive."
+        score, success, reason = 0.02, False, "Over-reacted to a false positive."
     elif ignored and investigated:
         extra = max(0, len(actions) - 2)
-        score = max(0.70, 0.97 - extra * 0.06)
+        score = max(0.70, 0.98 - extra * 0.05)
         success, reason = True, f"Correctly identified false positive. Steps: {len(actions)}"
     elif ignored:
-        score, success, reason = 0.75, True, "Correctly ignored false positive."
+        score, success, reason = 0.78, True, "Correctly ignored false positive."
     elif investigated:
-        score, success, reason = 0.35, False, "Investigated but no conclusion."
+        score, success, reason = 0.40, False, "Investigated but no conclusion."
     else:
-        score = max(0.01, 0.08 * len(actions)) if actions else 0.01
-        success, reason = False, "No conclusion reached."
+        score = max(0.01, 0.10 * len(actions)) if actions else 0.01
+        success, reason = False, "Did not reach a conclusion."
 
     return TaskResult(task_name="task_easy", score=_clamp(score),
                       steps_taken=len(actions), actions_taken=actions,
@@ -97,7 +97,7 @@ def grade_task_medium(actions: List[str], final_score: float, done: bool) -> Tas
     except ValueError:
         pass
 
-    score -= max(0, len(actions) - 5) * 0.04
+    score -= max(0, len(actions) - 6) * 0.05
     score = _clamp(score)
 
     missing = [a for a in ["investigate","block_account","collect_forensics","escalate"]
@@ -106,7 +106,7 @@ def grade_task_medium(actions: List[str], final_score: float, done: bool) -> Tas
 
     return TaskResult(task_name="task_medium", score=score,
                       steps_taken=len(actions), actions_taken=actions,
-                      success=score >= 0.65, reason=reason)
+                      success=score >= 0.70, reason=reason)
 
 
 def grade_task_hard(actions: List[str], final_score: float, done: bool) -> TaskResult:
@@ -115,19 +115,21 @@ def grade_task_hard(actions: List[str], final_score: float, done: bool) -> TaskR
                           steps_taken=len(actions), actions_taken=actions,
                           success=False, reason="Critical APT incident ignored.")
 
-    key_map = {"investigate": 0.15, "isolate_device": 0.20,
-               "block_ip": 0.20, "collect_forensics": 0.20, "escalate": 0.15}
-    score = sum(w for a, w in key_map.items() if a in actions)
+    score = 0.0
+    key = ["investigate","isolate_device","block_ip","collect_forensics","escalate"]
+    weights = [0.15, 0.20, 0.20, 0.20, 0.15]
+    for a, w in zip(key, weights):
+        if a in actions: score += w
 
-    taken = [a for a in actions if a in key_map]
-    expected = [a for a in key_map if a in actions]
-    if taken == expected and len(expected) == 5:
+    present = [a for a in actions if a in key]
+    expected = [a for a in key if a in actions]
+    if present == expected and len(expected) == 5:
         score += 0.05
 
-    score -= max(0, len(actions) - 7) * 0.04
+    score -= max(0, len(actions) - 8) * 0.04
     score = _clamp(score)
 
-    missing = [a for a in key_map if a not in actions]
+    missing = [a for a in key if a not in actions]
     reason = f"Score {score:.2f}. " + (f"Missing: {', '.join(missing)}." if missing else "All critical actions taken.")
 
     return TaskResult(task_name="task_hard", score=score,

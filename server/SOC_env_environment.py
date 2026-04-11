@@ -18,6 +18,11 @@ TERMINAL_ACTIONS = {"ignore", "escalate", "patch_system"}
 MAX_STEPS = {"easy": 5, "medium": 8, "hard": 12}
 
 
+def _clamp(value: float) -> float:
+    """Clamp any score/reward to strictly open interval (0.01, 0.99)."""
+    return round(min(0.99, max(0.01, value)), 2)
+
+
 class SOCEnvironment(Environment):
     SUPPORTS_CONCURRENT_SESSIONS: bool = True
 
@@ -91,6 +96,10 @@ class SOCEnvironment(Environment):
             context = self._scenario["investigation_context"]
             self._investigation_done = True
 
+        # Clamp both score and reward to strictly (0.01, 0.99)
+        clamped_score = _clamp(self._cumulative_score)
+        clamped_reward = _clamp(reward)
+
         return SOCObservation(
             alert_type=self._scenario["alert_type"],
             severity=self._scenario["severity"],
@@ -99,11 +108,11 @@ class SOCEnvironment(Environment):
             available_actions=self._get_available_actions() if not done else [],
             phase=phase,
             feedback=feedback,
-            score=round(self._cumulative_score, 2),
+            score=clamped_score,
             step=self._state.step_count,
             max_steps=max_steps,
             done=done,
-            reward=round(reward, 2),
+            reward=clamped_reward,
         )
 
     @property
@@ -173,9 +182,8 @@ class SOCEnvironment(Environment):
             alert_type=self._scenario["alert_type"] if self._scenario else "",
             severity="", signals=[], context={}, available_actions=[],
             phase="closed", feedback=msg,
-            score=round(self._cumulative_score, 2),
+            score=_clamp(self._cumulative_score),
             step=self._state.step_count,
             max_steps=MAX_STEPS.get(self._scenario["difficulty"], 8) if self._scenario else 8,
             done=True, reward=0.01,
         )
-

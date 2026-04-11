@@ -10,7 +10,7 @@ MODEL_NAME   = os.getenv("MODEL_NAME",   "Qwen/Qwen2.5-72B-Instruct")
 HF_TOKEN     = os.getenv("HF_TOKEN")
 
 if HF_TOKEN is None:
-    print("[DEBUG] HF_TOKEN not set ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â using baseline policy.", flush=True)
+    print("[DEBUG] HF_TOKEN not set ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â using baseline policy.", flush=True)
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -80,11 +80,11 @@ def llm_decide(obs_dict: dict, history: List[str], task_name: str, step: int):
         "ignore", "monitor", "investigate", "block_ip", "block_account",
         "isolate_device", "escalate", "request_mfa", "patch_system", "collect_forensics",
     ])
-    signals_str  = "\n".join(f"  ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¢ {s}" for s in obs_dict.get("signals", []))
+    signals_str  = "\n".join(f"  ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ {s}" for s in obs_dict.get("signals", []))
     context_str  = (
         json.dumps(obs_dict.get("context", {}), indent=2)
         if obs_dict.get("context")
-        else "(empty ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â run investigate first)"
+        else "(empty ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â run investigate first)"
     )
     user_msg = (
         f"Alert type : {obs_dict.get('alert_type', '')}\n"
@@ -202,10 +202,7 @@ def run_episode(task_name: str):
         )
 
     success     = compute_score(task_name, actions) >= 0.60
-    total = sum(rewards)
-    norm  = [round(r / max(total, 1.0), 2) for r in rewards] if total > 0 else rewards
-    norm  = [round(min(0.99, max(0.01, r)), 2) for r in norm]
-    rewards_str = ",".join(f"{r:.2f}" for r in norm)
+    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
     print(
         f"[END] success={'true' if success else 'false'} steps={step} rewards={rewards_str}",
         flush=True,
@@ -229,7 +226,7 @@ if __name__ == "__main__":
             client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
             print("[DEBUG] OpenAI client initialized.", flush=True)
         except Exception as e:
-            print(f"[DEBUG] Client init failed: {e} ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â using baseline.", flush=True)
+            print(f"[DEBUG] Client init failed: {e} ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â using baseline.", flush=True)
     else:
-        print("[DEBUG] No HF_TOKEN ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â using baseline policy.", flush=True)
+        print("[DEBUG] No HF_TOKEN ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â using baseline policy.", flush=True)
     main()

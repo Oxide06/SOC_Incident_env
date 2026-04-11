@@ -149,7 +149,7 @@ class SOCEnvironment(Environment):
             elif decision in TERMINAL_ACTIONS:
                 return -0.3, "Over-reaction! This was a false positive.", "closed"
             else:
-                return 0.0, f"'{decision}' noted.", "monitoring"
+                return 0.01, f"'{decision}' noted.", "monitoring"
 
         if decision == "ignore":
             return -0.49, "Dangerous! This is a real threat.", "detection"
@@ -166,7 +166,7 @@ class SOCEnvironment(Environment):
         if decision in TERMINAL_ACTIONS:
             return -0.3, f"Wrong terminal. Optimal was: '{optimal}'.", "closed"
 
-        return 0.0, f"'{decision}' noted. No direct effect.", "investigation"
+        return 0.01, f"'{decision}' noted. No direct effect.", "investigation"
 
     def _terminal_obs(self, msg: str) -> SOCObservation:
         return SOCObservation(

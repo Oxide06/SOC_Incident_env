@@ -10,7 +10,7 @@ MODEL_NAME   = os.getenv("MODEL_NAME",   "Qwen/Qwen2.5-72B-Instruct")
 HF_TOKEN     = os.getenv("HF_TOKEN")
 
 if HF_TOKEN is None:
-    print("[DEBUG] HF_TOKEN not set — using baseline policy.", flush=True)
+    print("[DEBUG] HF_TOKEN not set â€” using baseline policy.", flush=True)
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -23,7 +23,7 @@ except ImportError:
 
 BENCHMARK = "SOC_env"
 MAX_STEPS  = 12
-TASKS      = ["task_easy", "task_medium", "task_hard", "task_critical"]
+TASKS = ["task_easy", "task_medium", "task_hard"]
 
 TASK_SCENARIOS = {
     "task_easy":     "easy_false_positive_vpn",
@@ -80,11 +80,11 @@ def llm_decide(obs_dict: dict, history: List[str], task_name: str, step: int):
         "ignore", "monitor", "investigate", "block_ip", "block_account",
         "isolate_device", "escalate", "request_mfa", "patch_system", "collect_forensics",
     ])
-    signals_str  = "\n".join(f"  • {s}" for s in obs_dict.get("signals", []))
+    signals_str  = "\n".join(f"  â€¢ {s}" for s in obs_dict.get("signals", []))
     context_str  = (
         json.dumps(obs_dict.get("context", {}), indent=2)
         if obs_dict.get("context")
-        else "(empty — run investigate first)"
+        else "(empty â€” run investigate first)"
     )
     user_msg = (
         f"Alert type : {obs_dict.get('alert_type', '')}\n"
@@ -240,7 +240,7 @@ if __name__ == "__main__":
             client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
             print("[DEBUG] OpenAI client initialized.", flush=True)
         except Exception as e:
-            print(f"[DEBUG] Client init failed: {e} — using baseline.", flush=True)
+            print(f"[DEBUG] Client init failed: {e} â€” using baseline.", flush=True)
     else:
-        print("[DEBUG] No HF_TOKEN — using baseline policy.", flush=True)
+        print("[DEBUG] No HF_TOKEN â€” using baseline policy.", flush=True)
     main()

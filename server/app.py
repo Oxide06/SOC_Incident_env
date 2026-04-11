@@ -31,7 +31,7 @@ async def health():
 async def metadata():
     return {
         "name": "SOC_env",
-        "description": "SOC Incident Response Environment â€” AI agent acts as a Tier-1 SOC analyst triaging security alerts across easy, medium, and hard scenarios.",
+        "description": "SOC Incident Response Environment — AI agent acts as a Tier-1 SOC analyst triaging security alerts across easy, medium, and hard scenarios.",
         "version": "0.1.0",
         "author": "ApoorvaBadoni",
     }
@@ -47,7 +47,7 @@ async def reset(req: ResetRequest = ResetRequest()):
         difficulty = task_def["difficulty"]
     _env = SOCEnvironment(difficulty=difficulty, pinned_scenario_id=pinned_id)
     obs = _env.reset()
-    return JSONResponse({"observation": obs.model_dump(), "reward": 0.01, "done": False})
+    return JSONResponse({"observation": obs.model_dump(), "reward": 0.0, "done": False})
 
 @app.post("/step")
 async def step(req: StepRequest):
@@ -166,10 +166,10 @@ WEB_UI = """<!DOCTYPE html>
 </head>
 <body>
 <header>
-  <div style="font-size:1.8rem">ðŸ”</div>
+  <div style="font-size:1.8rem">🔐</div>
   <div>
     <h1>SOC Incident Response Environment</h1>
-    <div style="font-size:0.8rem;color:#718096;margin-top:2px">OpenEnv Â· Meta-PyTorch Hackathon Â· Interactive Demo</div>
+    <div style="font-size:0.8rem;color:#718096;margin-top:2px">OpenEnv · Meta-PyTorch Hackathon · Interactive Demo</div>
   </div>
   <span style="margin-left:auto">LIVE</span>
 </header>
@@ -249,7 +249,7 @@ WEB_UI = """<!DOCTYPE html>
 
       <!-- Context (unlocked by investigate) -->
       <div class="card" style="margin-bottom:1.5rem" id="context-card" style="display:none">
-        <h2>ðŸ” Investigation Context</h2>
+        <h2>🔍 Investigation Context</h2>
         <div class="context-box" id="context-box"><em>Not yet investigated</em></div>
       </div>
 
@@ -305,7 +305,7 @@ async function startTask(taskName) {
   const obs = data.observation;
   renderAlert(obs);
   enableActions(obs.available_actions);
-  addLog(`ðŸš¨ Episode started: ${taskName}`, 'log-info');
+  addLog(`🚨 Episode started: ${taskName}`, 'log-info');
   addLog(`Alert: ${obs.alert_type} | Severity: ${obs.severity.toUpperCase()}`, 'log-info');
 }
 
@@ -334,16 +334,16 @@ async function takeAction(decision) {
 
   const rewardClass = reward >= 0 ? 'log-reward-pos' : 'log-reward-neg';
   const rewardSign = reward >= 0 ? '+' : '';
-  addLog(`Step ${obs.step}: ${decision} â†’ reward <span class="${rewardClass}">${rewardSign}${reward.toFixed(2)}</span> | score: ${obs.score.toFixed(2)}`, 'log-step');
+  addLog(`Step ${obs.step}: ${decision} → reward <span class="${rewardClass}">${rewardSign}${reward.toFixed(2)}</span> | score: ${obs.score.toFixed(2)}`, 'log-step');
 
   if (data.done) {
     episodeDone = true;
     disableActions();
     const success = obs.score > 0.5;
     document.getElementById('episode-done').style.display = 'block';
-    document.getElementById('done-msg').textContent = success ? 'âœ… Episode Complete â€” Good work!' : 'âŒ Episode Failed â€” Try again';
+    document.getElementById('done-msg').textContent = success ? '✅ Episode Complete — Good work!' : '❌ Episode Failed — Try again';
     document.getElementById('done-msg').style.color = success ? '#68d391' : '#fc8181';
-    addLog(`ðŸ Episode done | Final score: ${obs.score.toFixed(2)}`, success ? 'log-reward-pos' : 'log-error');
+    addLog(`🏁 Episode done | Final score: ${obs.score.toFixed(2)}`, success ? 'log-reward-pos' : 'log-error');
   } else {
     enableActions(obs.available_actions);
   }

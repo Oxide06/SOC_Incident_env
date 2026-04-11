@@ -18,11 +18,6 @@ TERMINAL_ACTIONS = {"ignore", "escalate", "patch_system"}
 MAX_STEPS = {"easy": 5, "medium": 8, "hard": 12}
 
 
-def _clamp(value: float) -> float:
-    """Clamp any score/reward to strictly open interval (0.01, 0.99)."""
-    return round(min(0.99, max(0.01, value)), 2)
-
-
 class SOCEnvironment(Environment):
     SUPPORTS_CONCURRENT_SESSIONS: bool = True
 
@@ -58,11 +53,11 @@ class SOCEnvironment(Environment):
                 f"Severity: {self._scenario['severity'].upper()}\n"
                 f"Description: {self._scenario['description']}"
             ),
-            score=0.01,
+            score=0.0,
             step=0,
             max_steps=max_steps,
             done=False,
-            reward=0.01,
+            reward=0.0,
         )
 
     def step(self, action: SOCAction) -> SOCObservation:
@@ -96,10 +91,6 @@ class SOCEnvironment(Environment):
             context = self._scenario["investigation_context"]
             self._investigation_done = True
 
-        # Clamp both score and reward to strictly (0.01, 0.99)
-        clamped_score = _clamp(self._cumulative_score)
-        clamped_reward = _clamp(reward)
-
         return SOCObservation(
             alert_type=self._scenario["alert_type"],
             severity=self._scenario["severity"],
@@ -108,11 +99,11 @@ class SOCEnvironment(Environment):
             available_actions=self._get_available_actions() if not done else [],
             phase=phase,
             feedback=feedback,
-            score=clamped_score,
+            score=round(self._cumulative_score, 2),
             step=self._state.step_count,
             max_steps=max_steps,
             done=done,
-            reward=clamped_reward,
+            reward=round(reward, 2),
         )
 
     @property
@@ -152,21 +143,21 @@ class SOCEnvironment(Environment):
 
         if is_fp:
             if decision == "ignore":
-                return 0.79, "Correct! This was a false positive.", "closed"
+                return 0.8, "Correct! This was a false positive.", "closed"
             elif decision == "investigate":
                 return 0.1, "Good - investigate before acting.", "investigation"
             elif decision in TERMINAL_ACTIONS:
                 return -0.3, "Over-reaction! This was a false positive.", "closed"
             else:
-                return 0.01, f"'{decision}' noted.", "monitoring"
+                return 0.0, f"'{decision}' noted.", "monitoring"
 
         if decision == "ignore":
-            return -0.49, "Dangerous! This is a real threat.", "detection"
+            return -0.5, "Dangerous! This is a real threat.", "detection"
         if decision == "investigate":
             r = 0.1 if self._investigation_done else 0.15
             return r, "Investigation initiated. Context now available.", "investigation"
         if decision == optimal and decision in TERMINAL_ACTIONS:
-            return 0.99, f"Perfect! '{decision}' is exactly right. Incident contained.", "resolved"
+            return 1.0, f"Perfect! '{decision}' is exactly right. Incident contained.", "resolved"
         if decision in correct_seq:
             idx = correct_seq.index(decision)
             return 0.3, f"Good step! Part of correct sequence ({idx+1}/{len(correct_seq)}).", "containment"
@@ -175,15 +166,16 @@ class SOCEnvironment(Environment):
         if decision in TERMINAL_ACTIONS:
             return -0.3, f"Wrong terminal. Optimal was: '{optimal}'.", "closed"
 
-        return 0.01, f"'{decision}' noted. No direct effect.", "investigation"
+        return 0.0, f"'{decision}' noted. No direct effect.", "investigation"
 
     def _terminal_obs(self, msg: str) -> SOCObservation:
         return SOCObservation(
             alert_type=self._scenario["alert_type"] if self._scenario else "",
             severity="", signals=[], context={}, available_actions=[],
             phase="closed", feedback=msg,
-            score=_clamp(self._cumulative_score),
+            score=round(self._cumulative_score, 2),
             step=self._state.step_count,
             max_steps=MAX_STEPS.get(self._scenario["difficulty"], 8) if self._scenario else 8,
-            done=True, reward=0.01,
+            done=True, reward=0.0,
         )
+

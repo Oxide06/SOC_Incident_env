@@ -1,4 +1,4 @@
-﻿FROM python:3.11-slim
+FROM python:3.11-slim
 
 WORKDIR /app
 
@@ -18,6 +18,7 @@ COPY server/ ./server/
 RUN uv pip install --system "openenv-core[core]>=0.2.2" uvicorn fastapi
 RUN uv pip install --system -e .
 
+# Build: 20260411-182035
 EXPOSE 8000
 
 # This is the most reliable way for Docker

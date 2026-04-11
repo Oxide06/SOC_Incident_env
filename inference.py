@@ -1,13 +1,18 @@
-import os, json
+import os, sys, json
 from typing import List, Optional
 from dotenv import load_dotenv
 from openai import OpenAI
 
 load_dotenv(override=True)
 
-API_KEY      = os.getenv("HF_TOKEN") or os.getenv("OPENAI_API_KEY") or os.getenv("API_KEY")
 API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-MODEL_NAME   = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
+MODEL_NAME   = os.getenv("MODEL_NAME",   "Qwen/Qwen2.5-72B-Instruct")
+HF_TOKEN     = os.getenv("HF_TOKEN")
+
+if HF_TOKEN is None:
+    print("[DEBUG] HF_TOKEN not set — using baseline policy.", flush=True)
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 try:
     from server.SOC_env_environment import SOCEnvironment
@@ -17,74 +22,98 @@ except ImportError:
     from SOC_env.models import SOCAction
 
 BENCHMARK = "SOC_env"
-MAX_STEPS = 12
-TASKS = ["task_easy", "task_medium", "task_hard"]
-SUCCESS_SCORE_THRESHOLD = 0.60
-
-client = None
+MAX_STEPS  = 12
+TASKS      = ["task_easy", "task_medium", "task_hard", "task_critical"]
 
 TASK_SCENARIOS = {
-    "task_easy":   "easy_false_positive_vpn",
-    "task_medium": "medium_insider_threat",
-    "task_hard":   "hard_apt_lateral_movement",
+    "task_easy":     "easy_false_positive_vpn",
+    "task_medium":   "medium_insider_threat",
+    "task_hard":     "hard_apt_lateral_movement",
+    "task_critical": "critical_ransomware_precursor",
 }
 
 TASK_DIFFICULTY = {
-    "task_easy":   "easy",
-    "task_medium": "medium",
-    "task_hard":   "hard",
+    "task_easy":     "easy",
+    "task_medium":   "medium",
+    "task_hard":     "hard",
+    "task_critical": "hard",
 }
 
 BASELINE = {
-    "task_easy":   ["investigate", "ignore"],
-    "task_medium": ["investigate", "block_account", "collect_forensics", "escalate"],
-    "task_hard":   ["investigate", "isolate_device", "block_ip", "collect_forensics", "escalate"],
+    "task_easy":     ["investigate", "ignore"],
+    "task_medium":   ["investigate", "block_account", "collect_forensics", "escalate"],
+    "task_hard":     ["investigate", "isolate_device", "block_ip", "collect_forensics", "escalate"],
+    "task_critical": ["investigate", "isolate_device", "block_ip", "collect_forensics", "escalate"],
 }
 
-SYSTEM_PROMPT = '''You are an expert SOC Tier-1 analyst. Respond ONLY with JSON:
+SYSTEM_PROMPT = """You are an expert SOC Tier-1 analyst. Respond ONLY with JSON:
 {"decision": "<action>", "reasoning": "<one sentence>"}
-Rules:
-1. Always investigate first when context is empty
-2. Authorized/normal activity -> ignore
-3. Account compromise -> block_account or request_mfa
-4. Active malware/C2 -> isolate_device
-5. Malicious IP -> block_ip
-6. Beyond Tier-1 -> escalate
-7. Never repeat an action already taken'''
 
-def choose_action_baseline(task_name, step, history):
+Decision rules:
+1. ALWAYS investigate first if context is empty
+2. Authorized/normal activity (VPN, approved scan) -> ignore
+3. Active malware or C2 beacon -> isolate_device immediately
+4. Known malicious IP -> block_ip
+5. Compromised account -> block_account
+6. Phishing with credential risk -> request_mfa
+7. Supply chain / patching needed -> patch_system
+8. Evidence preservation required -> collect_forensics
+9. Beyond Tier-1 scope (APT, ransomware, legal) -> escalate
+10. Never repeat an action already taken"""
+
+client = None
+
+
+def choose_action_baseline(task_name: str, step: int, history: List[str]):
     seq = BASELINE.get(task_name, ["investigate", "escalate"])
     idx = step - 1
     if idx < len(seq) and seq[idx] not in history:
-        return seq[idx], "baseline fallback"
+        return seq[idx], "baseline policy"
     for a in seq:
         if a not in history:
-            return a, "baseline fallback"
+            return a, "baseline policy"
     return "escalate", "baseline exhausted"
 
-def llm_decide(obs_dict, history, task_name, step):
+
+def llm_decide(obs_dict: dict, history: List[str], task_name: str, step: int):
     available = obs_dict.get("available_actions", [
-        "ignore","monitor","investigate","block_ip","block_account",
-        "isolate_device","escalate","request_mfa","patch_system","collect_forensics"
+        "ignore", "monitor", "investigate", "block_ip", "block_account",
+        "isolate_device", "escalate", "request_mfa", "patch_system", "collect_forensics",
     ])
+    signals_str  = "\n".join(f"  • {s}" for s in obs_dict.get("signals", []))
+    context_str  = (
+        json.dumps(obs_dict.get("context", {}), indent=2)
+        if obs_dict.get("context")
+        else "(empty — run investigate first)"
+    )
     user_msg = (
-        f"Alert: {obs_dict.get('alert_type','')}\nSeverity: {obs_dict.get('severity','')}\n"
-        f"Step: {obs_dict.get('step',0)}/{obs_dict.get('max_steps',8)}\n\nSignals:\n" +
-        "\n".join(f"  - {s}" for s in obs_dict.get("signals",[])) +
-        f"\n\nContext:\n{json.dumps(obs_dict.get('context',{}),indent=2) if obs_dict.get('context') else '(empty - use investigate)'}\n\n"
-        f"Last feedback: {obs_dict.get('feedback','')}\nAvailable: {', '.join(available)}\n"
-        f"Already taken: {', '.join(history) if history else 'none'}\nRespond ONLY with JSON."
+        f"Alert type : {obs_dict.get('alert_type', '')}\n"
+        f"Severity   : {obs_dict.get('severity', '').upper()}\n"
+        f"Phase      : {obs_dict.get('phase', '')}\n"
+        f"Step       : {obs_dict.get('step', 0)}/{obs_dict.get('max_steps', 12)}\n\n"
+        f"Signals:\n{signals_str}\n\n"
+        f"Investigation context:\n{context_str}\n\n"
+        f"Last feedback: {obs_dict.get('feedback', '')}\n\n"
+        f"Available actions: {', '.join(available)}\n"
+        f"Already taken    : {', '.join(history) if history else 'none'}\n\n"
+        "Respond ONLY with JSON."
     )
     try:
         response = client.chat.completions.create(
-            model=MODEL_NAME, max_tokens=300, temperature=0.2,
-            messages=[{"role":"system","content":SYSTEM_PROMPT},{"role":"user","content":user_msg}],
+            model=MODEL_NAME,
+            max_tokens=200,
+            temperature=0.1,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user",   "content": user_msg},
+            ],
         )
         text = response.choices[0].message.content.strip()
         if "```" in text:
             text = text.split("```")[1]
-            if text.startswith("json"): text = text[4:]
-        parsed = json.loads(text.strip())
+            if text.startswith("json"):
+                text = text[4:]
+        parsed   = json.loads(text.strip())
         decision = parsed.get("decision", "investigate")
         if decision not in available:
             decision = "investigate"
@@ -93,44 +122,57 @@ def llm_decide(obs_dict, history, task_name, step):
         d, r = choose_action_baseline(task_name, step, history)
         return d, r, str(exc)
 
-def compute_score(task_name, actions):
+
+def compute_score(task_name: str, actions: List[str]) -> float:
     if task_name == "task_easy":
-        if "ignore" in actions and not any(a in actions for a in ["block_account","isolate_device"]):
-            return 0.98
-        elif any(a in actions for a in ["block_account","isolate_device","escalate"]):
+        if "ignore" in actions and not any(
+            a in actions for a in ["block_account", "isolate_device", "block_ip"]
+        ):
+            return 0.97
+        elif any(a in actions for a in ["block_account", "isolate_device", "block_ip"]):
             return 0.02
         elif "investigate" in actions:
-            return 0.40
+            return 0.35
         return 0.10
-    elif task_name == "task_medium":
-        s = 0.0
-        if "investigate" in actions:       s += 0.20
-        if "block_account" in actions:     s += 0.25
-        if "collect_forensics" in actions: s += 0.20
-        if "escalate" in actions:          s += 0.25
-        return round(min(0.99, max(0.01, s)), 2)
-    elif task_name == "task_hard":
-        key = ["investigate","isolate_device","block_ip","collect_forensics","escalate"]
-        weights = [0.15, 0.20, 0.20, 0.20, 0.15]
-        s = sum(w for a, w in zip(key, weights) if a in actions)
-        return round(min(0.99, max(0.01, s)), 2)
-    return 0.50
 
-def run_episode(task_name):
+    key_weights = {
+        "task_medium": {
+            "investigate": 0.20, "block_account": 0.25,
+            "collect_forensics": 0.20, "escalate": 0.25,
+        },
+        "task_hard": {
+            "investigate": 0.15, "isolate_device": 0.20,
+            "block_ip": 0.20, "collect_forensics": 0.20, "escalate": 0.15,
+        },
+        "task_critical": {
+            "investigate": 0.12, "isolate_device": 0.22,
+            "block_ip": 0.22, "collect_forensics": 0.18, "escalate": 0.18,
+        },
+    }
+    weights = key_weights.get(task_name, {})
+    score   = sum(w for a, w in weights.items() if a in actions)
+    return round(min(0.99, max(0.01, score)), 2)
+
+
+def run_episode(task_name: str):
     print(f"[START] task={task_name} env={BENCHMARK} model={MODEL_NAME}", flush=True)
-    rewards, actions, step = [], [], 0
+    rewards: List[float] = []
+    actions: List[str]   = []
+    step = 0
 
     try:
         env = SOCEnvironment(
             difficulty=TASK_DIFFICULTY[task_name],
-            pinned_scenario_id=TASK_SCENARIOS[task_name]
+            pinned_scenario_id=TASK_SCENARIOS[task_name],
         )
-        obs = env.reset()
+        obs  = env.reset()
+        done = obs.done
     except Exception as exc:
-        print(f"[END] success=false steps=0 score=0.01 rewards=", flush=True)
-        return False, 0, [], 0.01
-
-    done = obs.done
+        print(
+            f"[END] success=false steps=0 rewards=",
+            flush=True,
+        )
+        return False, 0, []
 
     while not done and step < MAX_STEPS:
         step += 1
@@ -140,46 +182,65 @@ def run_episode(task_name):
             decision, reasoning, llm_error = llm_decide(obs_dict, actions, task_name, step)
         else:
             decision, reasoning = choose_action_baseline(task_name, step, actions)
-            llm_error = "no client"
+            llm_error = "no_client"
 
         try:
-            action = SOCAction(decision=decision, reasoning=reasoning)
-            obs = env.step(action)
-            reward = float(obs.reward)
-            done = obs.done
+            action   = SOCAction(decision=decision, reasoning=reasoning)
+            obs      = env.step(action)
+            reward   = float(obs.reward)
+            done     = obs.done
         except Exception as exc:
             reward, done, llm_error = 0.0, True, str(exc)
 
         rewards.append(reward)
         actions.append(decision)
         error_str = llm_error if llm_error else "null"
-        print(f"[STEP] step={step} action={decision} reward={reward:.2f} done={'true' if done else 'false'} error={error_str}", flush=True)
+        print(
+            f"[STEP] step={step} action={decision} reward={reward:.2f} "
+            f"done={'true' if done else 'false'} error={error_str}",
+            flush=True,
+        )
 
-    score = compute_score(task_name, actions)
-    success = score >= SUCCESS_SCORE_THRESHOLD
-    print(f"[END] success={'true' if success else 'false'} steps={step} score={score:.2f} rewards={','.join(f'{r:.2f}' for r in rewards)}", flush=True)
-    return success, step, rewards, score
+    success     = compute_score(task_name, actions) >= 0.60
+    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
+    print(
+        f"[END] success={'true' if success else 'false'} steps={step} rewards={rewards_str}",
+        flush=True,
+    )
+    return success, step, rewards
+
 
 def main():
     results = []
     for task_name in TASKS:
-        success, steps, rewards, score = run_episode(task_name)
-        results.append({"task":task_name,"success":success,"steps":steps,"score":score,"total_reward":round(sum(rewards),2)})
+        success, steps, rewards = run_episode(task_name)
+        results.append({
+            "task":         task_name,
+            "success":      success,
+            "steps":        steps,
+            "total_reward": round(sum(rewards), 2),
+        })
         print(flush=True)
+
     print("# SUMMARY", flush=True)
     for r in results:
-        print(f"# {r['task']:20s} {'SUCCESS' if r['success'] else 'FAIL':8s} steps={r['steps']:2d} score={r['score']:.2f} total_reward={r['total_reward']:.2f}", flush=True)
-    print(f"# Tasks passed: {sum(1 for r in results if r['success'])}/{len(results)}", flush=True)
+        status = "SUCCESS" if r["success"] else "FAIL"
+        print(
+            f"# {r['task']:20s} {status:8s} "
+            f"steps={r['steps']:2d} total_reward={r['total_reward']:.2f}",
+            flush=True,
+        )
+    passed = sum(1 for r in results if r["success"])
+    print(f"# Tasks passed: {passed}/{len(results)}", flush=True)
+
 
 if __name__ == "__main__":
-    if API_KEY:
+    if HF_TOKEN:
         try:
-            client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+            client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
             print("[DEBUG] OpenAI client initialized.", flush=True)
         except Exception as e:
-            print(f"[DEBUG] Failed to initialize OpenAI client: {e}", flush=True)
-            client = None
+            print(f"[DEBUG] Client init failed: {e} — using baseline.", flush=True)
     else:
-        print("[DEBUG] No API key found. Using baseline policy.", flush=True)
-        client = None
+        print("[DEBUG] No HF_TOKEN — using baseline policy.", flush=True)
     main()

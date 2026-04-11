@@ -10,7 +10,7 @@ MODEL_NAME   = os.getenv("MODEL_NAME",   "Qwen/Qwen2.5-72B-Instruct")
 HF_TOKEN     = os.getenv("HF_TOKEN")
 
 if HF_TOKEN is None:
-    print("[DEBUG] HF_TOKEN not set â€” using baseline policy.", flush=True)
+    print("[DEBUG] HF_TOKEN not set ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â using baseline policy.", flush=True)
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -80,11 +80,11 @@ def llm_decide(obs_dict: dict, history: List[str], task_name: str, step: int):
         "ignore", "monitor", "investigate", "block_ip", "block_account",
         "isolate_device", "escalate", "request_mfa", "patch_system", "collect_forensics",
     ])
-    signals_str  = "\n".join(f"  â€¢ {s}" for s in obs_dict.get("signals", []))
+    signals_str  = "\n".join(f"  ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ {s}" for s in obs_dict.get("signals", []))
     context_str  = (
         json.dumps(obs_dict.get("context", {}), indent=2)
         if obs_dict.get("context")
-        else "(empty â€” run investigate first)"
+        else "(empty ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â run investigate first)"
     )
     user_msg = (
         f"Alert type : {obs_dict.get('alert_type', '')}\n"
@@ -211,27 +211,13 @@ def run_episode(task_name: str):
 
 
 def main():
-    results = []
+    passed = 0
     for task_name in TASKS:
         success, steps, rewards = run_episode(task_name)
-        results.append({
-            "task":         task_name,
-            "success":      success,
-            "steps":        steps,
-            "total_reward": round(sum(rewards), 2),
-        })
+        if success:
+            passed += 1
         print(flush=True)
-
-    print("# SUMMARY", flush=True)
-    for r in results:
-        status = "SUCCESS" if r["success"] else "FAIL"
-        print(
-            f"# {r['task']:20s} {status:8s} "
-            f"steps={r['steps']:2d} total_reward={r['total_reward']:.2f}",
-            flush=True,
-        )
-    passed = sum(1 for r in results if r["success"])
-    print(f"# Tasks passed: {passed}/{len(results)}", flush=True)
+    print(f"# Tasks passed: {passed}/{len(TASKS)}", flush=True)
 
 
 if __name__ == "__main__":
@@ -240,7 +226,7 @@ if __name__ == "__main__":
             client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
             print("[DEBUG] OpenAI client initialized.", flush=True)
         except Exception as e:
-            print(f"[DEBUG] Client init failed: {e} â€” using baseline.", flush=True)
+            print(f"[DEBUG] Client init failed: {e} ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â using baseline.", flush=True)
     else:
-        print("[DEBUG] No HF_TOKEN â€” using baseline policy.", flush=True)
+        print("[DEBUG] No HF_TOKEN ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â using baseline policy.", flush=True)
     main()

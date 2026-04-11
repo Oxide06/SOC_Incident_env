@@ -53,11 +53,11 @@ class SOCEnvironment(Environment):
                 f"Severity: {self._scenario['severity'].upper()}\n"
                 f"Description: {self._scenario['description']}"
             ),
-            score=0.0,
+            score=0.01,
             step=0,
             max_steps=max_steps,
             done=False,
-            reward=0.0,
+            reward=0.01,
         )
 
     def step(self, action: SOCAction) -> SOCObservation:
@@ -176,6 +176,6 @@ class SOCEnvironment(Environment):
             score=round(self._cumulative_score, 2),
             step=self._state.step_count,
             max_steps=MAX_STEPS.get(self._scenario["difficulty"], 8) if self._scenario else 8,
-            done=True, reward=0.0,
+            done=True, reward=0.01,
         )
 

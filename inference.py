@@ -7,7 +7,7 @@ load_dotenv(override=True)
 
 API_KEY      = os.getenv("HF_TOKEN") or os.getenv("OPENAI_API_KEY") or os.getenv("API_KEY")
 API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-MODEL_NAME   = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
+MODEL_NAME   = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-7B-Instruct")
 
 try:
     from server.SOC_env_environment import SOCEnvironment
@@ -52,15 +52,22 @@ Rules:
 6. Beyond Tier-1 -> escalate
 7. Never repeat an action already taken'''
 
+AVAILABLE_ACTIONS = [
+    "ignore", "monitor", "investigate", "block_ip", "block_account",
+    "isolate_device", "escalate", "request_mfa", "patch_system", "collect_forensics"
+]
+
 def choose_action_baseline(task_name, step, history):
-    seq = BASELINE.get(task_name, ["investigate", "escalate"])
-    idx = step - 1
-    if idx < len(seq) and seq[idx] not in history:
-        return seq[idx], "baseline fallback"
-    for a in seq:
-        if a not in history:
-            return a, "baseline fallback"
-    return "escalate", "baseline exhausted"
+    """Random fallback — does NOT leak correct answers to the LLM."""
+    import random
+    # Always investigate first if no context gathered yet
+    if step == 1 or "investigate" not in history:
+        return "investigate", "random fallback - gather context first"
+    # Pick random action not yet taken
+    remaining = [a for a in AVAILABLE_ACTIONS if a not in history]
+    if remaining:
+        return random.choice(remaining), "random fallback"
+    return "escalate", "random fallback - exhausted"
 
 def llm_decide(obs_dict, history, task_name, step):
     available = obs_dict.get("available_actions", [

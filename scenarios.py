@@ -19,7 +19,7 @@ from typing import Any, Dict, List
 
 SCENARIOS: List[Dict[str, Any]] = [
 
-    # ─────────────── EASY ───────────────
+    # EASY 
 
     {
         "id": "easy_impossible_travel",
@@ -130,7 +130,7 @@ SCENARIOS: List[Dict[str, Any]] = [
         ),
     },
 
-    # ─────────────── MEDIUM ───────────────
+    # MEDIUM
 
     {
         "id": "medium_rdp_brute_force",
@@ -255,7 +255,7 @@ SCENARIOS: List[Dict[str, Any]] = [
         ),
     },
 
-    # ─────────────── HARD ───────────────
+    # HARD 
 
     {
         "id": "hard_apt_lateral_movement",
